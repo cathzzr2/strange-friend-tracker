@@ -55,7 +55,7 @@ def require_env(name: str) -> str:
 
 
 def fetch_html() -> str:
-    with httpx.Client(follow_redirects=True, timeout=20.0, http2=True) as client:
+    with httpx.Client(follow_redirects=True, timeout=20.0) as client:
         response = client.get(URL, headers=HEADERS)
         response.raise_for_status()
         return response.text
