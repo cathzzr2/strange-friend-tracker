@@ -1,9 +1,8 @@
+# filmlinc.org 对 GitHub Actions 出口 IP 常返回 403，定时跑请用本机 launchd（见 launchd/）。
 name: Silent Friend Tracker
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/5 * * * *"
 
 permissions:
   contents: write

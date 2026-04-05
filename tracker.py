@@ -1,16 +1,20 @@
+import hashlib
 import json
 import os
 import re
 import smtplib
 import sys
 from email.mime.text import MIMEText
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from bs4 import BeautifulSoup
 
 URL = "https://www.filmlinc.org/films/silent-friend/"
 STATE_FILE = "state.json"
+# ticket: 仅在购票相关信号变化时发信（默认，较少误报）
+# any: 整页正文摘要变化即发信（排期、文案等任意更新都会通知）
+TRACKER_ALERT_MODE_ENV = "TRACKER_ALERT_MODE"
 
 TARGET_KEYWORDS = [
     "1:30 PM Q&A",
@@ -64,6 +68,7 @@ def fetch_html() -> str:
 def extract_state(html: str) -> Dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     page_text = normalize_text(soup.get_text(" ", strip=True))
+    page_digest = hashlib.sha256(page_text.encode("utf-8")).hexdigest()
 
     links: List[Tuple[str, str]] = []
     for a_tag in soup.find_all("a", href=True):
@@ -99,6 +104,7 @@ def extract_state(html: str) -> Dict[str, Any]:
         "matched_hints": matched_hints,
         "ticket_links": ticket_links,
         "fingerprint": " || ".join(fingerprint_parts),
+        "page_digest": page_digest,
     }
 
 
@@ -135,6 +141,64 @@ def looks_like_ticket_release(current_state: Dict[str, Any], previous_state: Dic
     return False
 
 
+def alert_mode() -> str:
+    mode = os.getenv(TRACKER_ALERT_MODE_ENV, "ticket").strip().lower()
+    if mode not in ("ticket", "any"):
+        return "ticket"
+    return mode
+
+
+def page_changed(current: Dict[str, Any], previous: Dict[str, Any]) -> bool:
+    prev_d: Optional[str] = previous.get("page_digest")
+    if prev_d is None:
+        return False
+    return current.get("page_digest") != prev_d
+
+
+def should_alert(current: Dict[str, Any], previous: Dict[str, Any]) -> bool:
+    if not previous:
+        return False
+    if alert_mode() == "any":
+        return page_changed(current, previous)
+    return looks_like_ticket_release(current, previous)
+
+
+def format_ticket_links(links: List[Tuple[str, str]], limit: int = 15) -> str:
+    lines = [f"  - {label}\n    {href}" for label, href in links[:limit]]
+    if len(links) > limit:
+        lines.append(f"  ... 另有 {len(links) - limit} 条链接未列出")
+    return "\n".join(lines) if lines else "  (无)"
+
+
+def build_alert_email_body(
+    current: Dict[str, Any], previous: Dict[str, Any], mode: str
+) -> str:
+    lines = [
+        f"页面: {URL}",
+        f"检测模式: {mode}",
+        "",
+        "当前页面摘要 (SHA256 前 16 位):",
+        f"  {str(current.get('page_digest', ''))[:16]}…",
+    ]
+    if previous.get("page_digest"):
+        lines.append(f"上次: {str(previous.get('page_digest'))[:16]}…")
+
+    lines.extend(
+        [
+            "",
+            "购票相关关键词:",
+            f"  {current.get('matched_hints', [])}",
+            "",
+            "场次 / 目标关键词:",
+            f"  {current.get('matched_targets', [])}",
+            "",
+            "购票链接:",
+            format_ticket_links(current.get("ticket_links", [])),
+        ]
+    )
+    return "\n".join(lines)
+
+
 def send_email(subject: str, body: str) -> None:
     smtp_server = require_env("SMTP_SERVER")
     smtp_port = int(require_env("SMTP_PORT"))
@@ -165,15 +229,16 @@ def main() -> None:
     print("Current hints:", current_state.get("matched_hints", []))
     print("Current ticket links:", current_state.get("ticket_links", [])[:5])
 
-    should_alert = False
-    if previous_state:
-        should_alert = looks_like_ticket_release(current_state, previous_state)
+    mode = alert_mode()
+    fire = should_alert(current_state, previous_state)
 
-    if should_alert:
-        send_email(
-            "抢票提醒：Silent Friend 可能开票了",
-            f"Possible ticket-related update detected.\n\nURL: {URL}\n"
-        )
+    if fire:
+        if mode == "any":
+            subject = "Silent Friend 页面有更新"
+        else:
+            subject = "抢票提醒：Silent Friend 可能开票了"
+        body = build_alert_email_body(current_state, previous_state, mode)
+        send_email(subject, body)
         print("Alert email sent.")
     else:
         print("No alert this run.")

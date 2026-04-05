@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Film at Lincoln Center 会拦截 GitHub Actions 等机房 IP（403），本机定时跑通常可用。
+
+  1. 复制本文件到 ~/Library/LaunchAgents/
+  2. 把下面三处 YOUR_USERNAME 和路径改成你的本机路径
+  3. 在项目根目录放 .env（勿提交），内容示例：
+       SMTP_SERVER=smtp.example.com
+       SMTP_PORT=587
+       SENDER_EMAIL=...
+       SENDER_PASSWORD=...
+       RECIPIENT_EMAIL=...
+       # 任意正文变化都发邮件（推荐）；仅购票相关用 ticket
+       TRACKER_ALERT_MODE=any
+  4. chmod +x scripts/run-tracker.sh
+  5. launchctl load ~/Library/LaunchAgents/com.user.silentfriendtracker.plist
+     卸载：launchctl unload ~/Library/LaunchAgents/com.user.silentfriendtracker.plist
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.user.silentfriendtracker</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>/Users/YOUR_USERNAME/path/to/silent-friend-tracker/scripts/run-tracker.sh</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>300</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/Users/YOUR_USERNAME/Library/Logs/silentfriendtracker.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/YOUR_USERNAME/Library/Logs/silentfriendtracker.err.log</string>
+</dict>
+</plist>
